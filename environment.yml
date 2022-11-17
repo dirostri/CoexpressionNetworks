@@ -2,3 +2,15 @@ channels:
  - defaults
  - conda-forge
  - bioconda
+dependencies:
+ - r-base
+ - r-tidyverse
+ - r-shiny
+ - r-shinyFiles
+ - r-shinydashboard
+ - r-shinyjs
+ - r-phytools
+ - r-phylotools
+ - r-ape
+ - r-cowplot
+ - r-wgcna
