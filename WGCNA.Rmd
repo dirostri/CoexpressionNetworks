@@ -1,0 +1,179 @@
+---
+title: "WGCNA"
+output: html_document
+date: '2022-11-17'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# I. Load the Data
+
+First we load the data. 
+```{r include=FALSE}
+library(tidyverse)
+normalized_counts <- read.csv('data/B_anyanaExpression_toShare.csv', 
+                              row.names = 1) %>%
+  select(., starts_with(c("embryo3hrs", "embryo12hrs"))) %>% 
+  t()
+```
+Here are the first few rows and columns of our dataset. Please check that rows are samples and columns are genes
+```{r echo=FALSE}
+rownames(normalized_counts)
+head(normalized_counts[,1:6])
+```
+
+#II. Invoking WGCNA
+
+```{r include=FALSE}
+library(WGCNA)
+```
+
+
+```{r}
+sft <- pickSoftThreshold(normalized_counts,
+  dataIsExpr = TRUE,
+  corFnc = cor,
+  networkType = "unsigned"
+)
+
+sft_df <- data.frame(sft$fitIndices) %>%
+  dplyr::mutate(model_fit = -sign(slope) * SFT.R.sq)
+
+ggplot(sft_df, aes(x = Power, y = model_fit, label = Power)) +
+  # Plot the points
+  geom_point() +
+  # We'll put the Power labels slightly above the data points
+  geom_text(nudge_y = 0.1) +
+  # We will plot what WGCNA recommends as an R^2 cutoff
+  geom_hline(yintercept = 0.80, col = "red") +
+  # Just in case our values are low, we want to make sure we can still see the 0.80 level
+  ylim(c(min(sft_df$model_fit), 1.05)) +
+  # We can add more sensible labels for our axis
+  xlab("Soft Threshold (power)") +
+  ylab("Scale Free Topology Model Fit, signed R^2") +
+  ggtitle("Scale independence") +
+  # This adds some nicer aesthetics to our plot
+  theme_classic()
+```
+
+```{r}
+bwnet <- blockwiseModules(normalized_counts,
+  maxBlockSize = 40, # What size chunks (how many genes) the calculations should be run in
+  TOMType = "unsigned", # topological overlap matrix
+  power = 8, # soft threshold for network construction
+  numericLabels = TRUE, # Let's use numbers instead of colors for module labels
+  #randomSeed = 1234, # there's some randomness associated with this calculation
+  # so we should set a seed
+)
+```
+
+```{r}
+datTraits  <- data.frame(samples = rownames(normalized_counts)) %>% 
+  separate(samples, sep = '\\.', into = 'condition', remove = FALSE)
+```
+
+```{r}
+
+net <- bwnet
+datExpr = as.data.frame(normalized_counts)
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+nGenes = ncol(datExpr);
+nSamples = nrow(datExpr);
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, datTraits, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+```
+
+```{r}
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+
+pdf('WGCNA_labeledHeatmap_TF.pdf', width = 100, height = 100)
+labeledHeatmap(Matrix = moduleTraitCor,
+xLabels = names(datTraits),
+yLabels = names(MEs),
+ySymbols = names(MEs),
+colorLabels = FALSE,
+colors = blueWhiteRed(50),
+textMatrix = textMatrix,
+setStdMargins = FALSE,
+cex.text = 0.5,
+zlim = c(-1,1),
+main = paste("Module-trait relationships"))
+dev.off()
+```
+
+```{r}
+library(igraph)
+g <- graph.adjacency(
+  as.matrix(as.dist(cor(t(normalized_counts), method="pearson"))),
+  mode="undirected",
+  weighted=TRUE,
+  diag=FALSE
+)
+g <- simplify(g, remove.multiple=TRUE, remove.loops=TRUE)
+
+# Colour negative correlation edges as blue
+E(g)[which(E(g)$weight<0)]$color <- "darkblue"
+
+# Colour positive correlation edges as red
+E(g)[which(E(g)$weight>0)]$color <- "darkred"
+
+# Convert edge weights to absolute values
+E(g)$weight <- abs(E(g)$weight)
+
+# Change arrow size
+# For directed graphs only
+#E(g)$arrow.size <- 1.0
+
+# Remove edges below absolute Pearson correlation 0.8
+#g <- delete_edges(g, E(g)[which(E(g)$weight<0.6)])
+
+# Remove any vertices remaining that have no edges
+g <- delete.vertices(g, degree(g)==0)
+
+# Assign names to the graph vertices (optional)
+V(g)$name <- V(g)$name
+
+# Change shape of graph vertices
+V(g)$shape <- "sphere"
+
+# Change colour of graph vertices
+V(g)$color <- "skyblue"
+
+# Change colour of vertex frames
+V(g)$vertex.frame.color <- "white"
+
+# Scale the size of the vertices to be proportional to the level of expression of each gene represented by each vertex
+# Multiply scaled vales by a factor of 10
+scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+vSizes <- (scale01(apply(normalized_counts, 1, mean)) + 1.0) * 10
+
+# Amplify or decrease the width of the edges
+edgeweights <- E(g)$weight * 2.0
+
+# Convert the graph adjacency object into a minimum spanning tree based on Prim's algorithm
+mst <- mst(g, algorithm="prim")
+
+# Plot the tree object
+plot(
+  mst,
+  layout=layout.fruchterman.reingold,
+  edge.curved=TRUE,
+  vertex.size=vSizes,
+  vertex.label.dist=-0.5,
+  vertex.label.color="black",
+  asp=FALSE,
+  vertex.label.cex=0.6,
+  edge.width=edgeweights,
+  edge.arrow.mode=0,
+  main="My first graph")
+```
+
