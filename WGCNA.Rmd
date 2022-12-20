@@ -15,8 +15,8 @@ First we load the data.
 library(tidyverse)
 normalized_counts <- read.csv('data/B_anyanaExpression_toShare.csv', 
                               row.names = 1) %>%
-  select(., starts_with(c("embryo3hrs", "embryo12hrs"))) %>% 
-  t()
+  select(., starts_with(c("embryo3hrs", "embryo12hrs"))) #%>% 
+  #t()
 ```
 Here are the first few rows and columns of our dataset. Please check that rows are samples and columns are genes
 ```{r echo=FALSE}
